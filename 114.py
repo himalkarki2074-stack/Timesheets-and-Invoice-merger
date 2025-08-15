@@ -117,16 +117,17 @@ def optimize_timesheet_orientation(src_pdf, dst_pdf):
                 w = float(page.mediabox.width)
                 h = float(page.mediabox.height)
                 
-                # Enhanced timesheet orientation logic
+                # Enhanced timesheet orientation logic for perfect alignment
                 if w > h:
-                    # Landscape page - rotate to portrait
+                    # Landscape page - rotate to portrait for better alignment
                     page.rotate(90)
-                elif w > h * 1.3:
+                elif w > h * 1.2:
                     # Wide page - likely a timesheet that needs rotation
                     page.rotate(90)
-                elif w < h * 0.7:
+                elif w < h * 0.8:
                     # Very tall page - might need rotation
                     page.rotate(90)
+                # For standard A4/Letter ratios, keep as-is for perfect alignment
                     
             except Exception:
                 pass
@@ -205,21 +206,10 @@ def prepare_files_for_merge(folder, logger=None):
     invoice_final = None
 
     if invoice_candidate:
-        root = os.path.splitext(os.path.basename(invoice_candidate))[0]
-        invoice_final = os.path.join(folder, f"{root}_invoice_ready.pdf")
-        try:
-            if invoice_candidate.lower().endswith(".pdf"):
-                rotate_pdf_if_needed(invoice_candidate, invoice_final)
-            elif invoice_candidate.lower().endswith((".jpg", ".jpeg", ".png")):
-                image_to_pdf(invoice_candidate, invoice_final)
-            elif invoice_candidate.lower().endswith((".docx", ".doc")):
-                word_to_rotated_pdf(invoice_candidate, invoice_final)
-            if logger:
-                logger.log(f"Prepared invoice: {os.path.basename(invoice_final)}", "ok")
-        except Exception as e:
-            invoice_final = None
-            if logger:
-                logger.log(f"Failed to prepare invoice {invoice_candidate}: {e}", "warn")
+        # Use the original invoice file directly, don't create duplicates
+        invoice_final = invoice_candidate
+        if logger:
+            logger.log(f"Using original invoice: {os.path.basename(invoice_final)}", "ok")
 
     for p in others:
         root = os.path.splitext(os.path.basename(p))[0]
@@ -250,8 +240,7 @@ def prepare_files_for_merge(folder, logger=None):
             continue
 
     final_list = []
-    if invoice_final:
-        final_list.append(invoice_final)
+    # Don't include invoice in final_list since we handle it separately during merge
     final_list.extend(prepared)
     return final_list, invoice_final
 
@@ -613,24 +602,47 @@ class App(tb.Window):
                     try:
                         self._add_activity_line(f"Merging {len(prepared_list)} files for {client}...")
                         merger = PdfMerger()
+                        
+                        # Handle invoice first - ensure it's properly oriented
+                        if invoice_final:
+                            # Create a temporary rotated version of the invoice if needed
+                            temp_invoice = os.path.join(week_path, "temp_invoice_rotated.pdf")
+                            try:
+                                if invoice_final.lower().endswith(".pdf"):
+                                    rotate_pdf_if_needed(invoice_final, temp_invoice)
+                                    merger.append(temp_invoice)
+                                else:
+                                    # For non-PDF invoices, use as-is
+                                    merger.append(invoice_final)
+                            except Exception:
+                                # Fallback to original file
+                                merger.append(invoice_final)
+                        
+                        # Add all other files (timesheets)
                         for i, p in enumerate(prepared_list):
                             merger.append(p)
                             # Update progress during merge
                             merge_progress = int((i + 1) / len(prepared_list) * 50)  # 50% of this task
                             self._update_progress_without_increment(merge_progress)
                         
+                        # Generate output filename
                         if invoice_final:
                             # Get the original invoice name and add underscore
                             original_invoice_name = os.path.splitext(os.path.basename(invoice_final))[0]
-                            # Remove any existing "_invoice_ready" suffix
-                            if original_invoice_name.endswith("_invoice_ready"):
-                                original_invoice_name = original_invoice_name[:-14]  # Remove "_invoice_ready"
                             out_name = f"{original_invoice_name}_.pdf"
                         else:
                             out_name = f"{client}_Week_{week_str}.pdf"
                         out_path = os.path.join(week_path, out_name)
                         merger.write(out_path)
                         merger.close()
+                        
+                        # Clean up temporary file
+                        try:
+                            if os.path.exists(temp_invoice):
+                                os.remove(temp_invoice)
+                        except Exception:
+                            pass
+                        
                         self.logger.log(f"Merged PDF created: {out_path}", "ok")
                         merged_count += 1
                         self._add_activity_line(f"✓ Merged for {client}: {os.path.basename(out_path)}")
