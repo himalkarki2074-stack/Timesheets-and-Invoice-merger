@@ -22,7 +22,8 @@ os.makedirs(log_folder, exist_ok=True)
 
 clients_list = [
     "Aquila Energy", "BDR", "B Squared", "CFAIS", "Data Specialist",
-    "HTS Workforce", "Schultz Controls", "Security 101", "VFS Fire", "Western Audio"
+    "HTS Workforce", "Pearce Services", "Pinnacle Network", "Schultz Controls", 
+    "Security 101", "VFS Fire", "Western Audio"
 ]
 
 APP_TITLE = "Invoice and Timesheets Compiler"
@@ -250,7 +251,7 @@ class App(tb.Window):
     def __init__(self):
         super().__init__(themename="flatly")
         self.title(APP_TITLE)
-        self.geometry("1120x820")
+        self.geometry("1120x900")
         self.configure(bg=THEME_BG)
 
         root = tb.Frame(self, padding=12)
@@ -286,6 +287,22 @@ class App(tb.Window):
             cb = tb.Checkbutton(clients_panel, text=c, variable=var, bootstyle="round-toggle")
             cb.pack(anchor="w", pady=2)
             self.chk_vars.append((c, var))
+
+        # Custom client entry
+        custom_frame = tk.Frame(clients_panel, bg=PANEL_BG)
+        custom_frame.pack(anchor="w", pady=(8, 0))
+        tk.Label(custom_frame, text="Custom Client:", bg=PANEL_BG, fg=TEXT_FG, font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        
+        custom_entry_frame = tk.Frame(custom_frame, bg=PANEL_BG)
+        custom_entry_frame.pack(anchor="w", pady=(4, 0))
+        tk.Label(custom_entry_frame, text="Name:", bg=PANEL_BG, fg=TEXT_FG).pack(side="left", padx=(0, 4))
+        self.custom_client_var = tk.StringVar()
+        self.custom_client_entry = tb.Entry(custom_entry_frame, textvariable=self.custom_client_var, width=20)
+        self.custom_client_entry.pack(side="left", padx=(0, 6))
+        
+        self.custom_client_var_check = tk.BooleanVar(value=False)
+        self.custom_client_checkbox = tb.Checkbutton(custom_entry_frame, text="Include", variable=self.custom_client_var_check, bootstyle="round-toggle")
+        self.custom_client_checkbox.pack(side="left")
 
         sel_btns = tb.Frame(clients_panel)
         sel_btns.pack(anchor="w", pady=(6, 0))
@@ -328,7 +345,7 @@ class App(tb.Window):
         left_mid = tk.Frame(middle, bg=PANEL_BG)
         left_mid.pack(side="left", fill="both", expand=True, padx=(0, 8))
 
-        logo_frame = tk.Frame(left_mid, width=140, height=120, bg="#e9eef6")
+        logo_frame = tk.Frame(left_mid, width=140, height=100, bg="#e9eef6")
         logo_frame.pack(anchor="nw", padx=8, pady=8)
         logo_frame.pack_propagate(False)
         logo_label = tk.Label(logo_frame, text="LOGO", bg="#e9eef6", fg=TEXT_FG, font=("Segoe UI", 14, "bold"))
@@ -360,7 +377,7 @@ class App(tb.Window):
         right_mid.pack(side="right", fill="both", expand=True, padx=(8,0))
 
         tk.Label(right_mid, text="Recent Activity", bg=PANEL_BG, fg=TEXT_FG, font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=4)
-        self.activity_text = tk.Text(right_mid, height=10, wrap="word", bg="#f7f9fc", fg=TEXT_FG, relief="flat")
+        self.activity_text = tk.Text(right_mid, height=12, wrap="word", bg="#f7f9fc", fg=TEXT_FG, relief="flat")
         self.activity_text.pack(fill="both", expand=True, padx=4, pady=(6,8))
         self.activity_text.configure(state="disabled")
 
@@ -369,16 +386,33 @@ class App(tb.Window):
         prog_frame.pack(fill="x", pady=(2, 6))
 
         tk.Label(prog_frame, text="Progress", bg=PANEL_BG, fg=TEXT_FG, font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.progress = tb.Progressbar(prog_frame, mode="determinate")
-        self.progress.pack(fill="x", pady=(6, 6))
-        self.eta_label = tk.Label(prog_frame, text="0% • ETA: --", bg=PANEL_BG, fg=TEXT_FG)
+        
+        # Create a simple, reliable progress bar using Canvas
+        self.progress_canvas = tk.Canvas(prog_frame, height=25, bg="#e0e0e0", highlightthickness=0, relief="sunken", bd=2)
+        self.progress_canvas.pack(fill="x", pady=(6, 6), padx=(0, 0))
+        
+        # Create the progress rectangle with a more visible color
+        self.progress_rect = self.progress_canvas.create_rectangle(0, 0, 0, 25, fill="#2196F3", outline="")
+        
+        # Store progress value for updates
+        self.progress_value = 0
+        
+        # Test progress bar visibility with a small delay to ensure canvas is ready
+        self.after(200, lambda: self._update_progress_bar(30))
+        self.eta_label = tk.Label(prog_frame, text="30% • ETA: --", bg=PANEL_BG, fg=TEXT_FG)
         self.eta_label.pack(anchor="w")
+        
+        # Add a more immediate test after window is fully loaded
+        self.after(500, lambda: self._update_progress_bar(50))
+        
+        # Bind canvas resize to update progress bar
+        self.progress_canvas.bind('<Configure>', lambda e: self._on_canvas_resize())
 
         # Log panel
         log_frame = tb.Frame(root, bootstyle="light", padding=8)
         log_frame.pack(fill="both", expand=True, pady=(6, 0))
         tk.Label(log_frame, text="Log", bg=PANEL_BG, fg=TEXT_FG, font=("Segoe UI", 10, "bold")).pack(anchor="w")
-        self.log_text = tk.Text(log_frame, height=8, wrap="word", bg="#ffffff", fg=TEXT_FG, relief="flat")
+        self.log_text = tk.Text(log_frame, height=10, wrap="word", bg="#ffffff", fg=TEXT_FG, relief="flat")
         self.log_text.pack(fill="both", expand=True, pady=(6,0))
         self.log_text.tag_configure("ok", foreground="#1b8a5a")
         self.log_text.tag_configure("error", foreground="#c62828")
@@ -399,6 +433,12 @@ class App(tb.Window):
 
     def _quick_scan_thread(self):
         selected = [name for name, v in self.chk_vars if v.get()]
+        
+        # Add custom client if entered and checked
+        custom_client = self.custom_client_var.get().strip()
+        if custom_client and self.custom_client_var_check.get():
+            selected.append(custom_client)
+            
         week_str = f"{self.month_var.get().zfill(2)}-{self.day_var.get().zfill(2)}"
         pre_scan = {}
         total_tasks = 0
@@ -412,7 +452,7 @@ class App(tb.Window):
         for i, c in enumerate(selected):
             # Update scan progress
             scan_progress = int((i / total_clients) * 100)
-            self.after(0, lambda p=scan_progress: self.progress.configure(value=p))
+            self.after(0, lambda p=scan_progress: self._update_progress_bar(p))
             self.after(0, lambda p=scan_progress: self.eta_label.configure(text=f"Scanning: {p}%"))
             
             client_root = os.path.join(main_folder, c)
@@ -445,7 +485,7 @@ class App(tb.Window):
                 summary += f"\n⚠️  Missing folders for: {', '.join(missing_folders)}"
             
             self._add_activity_line(summary)
-            self.progress.configure(value=0)
+            self._update_progress_bar(0)
             self.eta_label.configure(text="0% • ETA: --")
             
             # Auto-start merging if files were found and this was triggered by Start Merging
@@ -468,6 +508,12 @@ class App(tb.Window):
 
     def on_start(self):
         selected_clients = [name for name, v in self.chk_vars if v.get()]
+        
+        # Add custom client if entered and checked
+        custom_client = self.custom_client_var.get().strip()
+        if custom_client and self.custom_client_var_check.get():
+            selected_clients.append(custom_client)
+        
         if not selected_clients:
             messagebox.showwarning("Select clients", "Please select at least one client.")
             return
@@ -519,7 +565,7 @@ class App(tb.Window):
         self.status_vars["merged"].set("0")
         self.status_vars["warnings"].set("0")
         self.status_vars["errors"].set("0")
-        self.progress.configure(value=0)
+        self._update_progress_bar(0)
         self.eta_label.configure(text="0% • ETA: --")
         self._add_activity_line(f"Starting merge for week {week_str}...")
         self.start_btn.configure(state="disabled")
@@ -529,6 +575,12 @@ class App(tb.Window):
     def refresh_scan(self):
         """Manually refresh the scan for current selections"""
         selected_clients = [name for name, v in self.chk_vars if v.get()]
+        
+        # Add custom client if entered and checked
+        custom_client = self.custom_client_var.get().strip()
+        if custom_client and self.custom_client_var_check.get():
+            selected_clients.append(custom_client)
+        
         if not selected_clients:
             messagebox.showwarning("Select clients", "Please select at least one client.")
             return
@@ -747,10 +799,41 @@ class App(tb.Window):
             avg = elapsed / max(1, self.tasks_done)
             remaining_seconds = int(avg * max(0, (self.total_tasks - self.tasks_done)))
             try:
-                self.progress.after(0, lambda v=pct: self.progress.configure(value=v))
+                # Update custom progress bar
+                self.progress_value = pct
+                self.progress_canvas.after(0, lambda v=pct: self._update_progress_bar(v))
                 self.eta_label.after(0, lambda t=f"{pct}% • ETA: {remaining_seconds}s": self.eta_label.configure(text=t))
-            except Exception:
+                # Debug: print progress updates
+                print(f"Progress: {pct}% ({self.tasks_done}/{self.total_tasks})")
+            except Exception as e:
+                print(f"Progress update error: {e}")
                 pass
+
+    def _on_canvas_resize(self):
+        """Handle canvas resize events to maintain progress bar appearance"""
+        try:
+            if hasattr(self, 'progress_value'):
+                self._update_progress_bar(self.progress_value)
+        except Exception:
+            pass
+
+    def _update_progress_bar(self, percentage):
+        """Update the canvas progress bar based on percentage"""
+        try:
+            # Store the current percentage
+            self.progress_value = percentage
+            
+            # Get the canvas width and calculate progress bar width
+            canvas_width = self.progress_canvas.winfo_width()
+            if canvas_width > 0:
+                progress_width = int((percentage / 100) * canvas_width)
+                # Update the rectangle coordinates
+                self.progress_canvas.coords(self.progress_rect, 0, 0, progress_width, 25)
+                # Force canvas update
+                self.progress_canvas.update_idletasks()
+        except Exception as e:
+            print(f"Canvas progress update error: {e}")
+            pass
 
     def _update_progress_without_increment(self, sub_progress):
         """Update progress bar with sub-task progress without incrementing task counter"""
@@ -760,7 +843,7 @@ class App(tb.Window):
             current_task_progress = int((1 / max(1, self.total_tasks)) * 100 * (sub_progress / 100))
             total_progress = min(100, base_progress + current_task_progress)
             
-            self.progress.after(0, lambda v=total_progress: self.progress.configure(value=v))
+            self.progress_canvas.after(0, lambda v=total_progress: self._update_progress_bar(v))
             self.eta_label.after(0, lambda t=f"{total_progress}% • Processing...": self.eta_label.configure(text=t))
         except Exception:
             pass
@@ -792,7 +875,7 @@ class App(tb.Window):
             except Exception:
                 pass
         try:
-            self.progress.after(0, lambda: self.progress.configure(value=100))
+            self._update_progress_bar(100)
             if missing_folders and len(missing_folders) > 0:
                 self.eta_label.after(0, lambda: self.eta_label.configure(text=f"Done ⚠️ ({len(missing_folders)} missing folders)"))
             else:
