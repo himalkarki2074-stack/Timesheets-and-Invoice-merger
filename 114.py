@@ -598,27 +598,47 @@ class App(tb.Window):
                 self._increment_task_and_update()
 
                 out_path = ""
-                if prepared_list:
+                if prepared_list and invoice_final:
                     try:
-                        self._add_activity_line(f"Merging {len(prepared_list)} files for {client}...")
+                        self._add_activity_line(f"Creating merged file with invoice and {len(prepared_list)} timesheets for {client}...")
+                        
+                        # Create new merged file with invoice first, then timesheets
                         merger = PdfMerger()
                         
-                        # Handle invoice first - ensure it's properly oriented
-                        if invoice_final:
-                            # Create a temporary rotated version of the invoice if needed
-                            temp_invoice = os.path.join(week_path, "temp_invoice_rotated.pdf")
-                            try:
-                                if invoice_final.lower().endswith(".pdf"):
-                                    rotate_pdf_if_needed(invoice_final, temp_invoice)
-                                    merger.append(temp_invoice)
-                                else:
-                                    # For non-PDF invoices, use as-is
-                                    merger.append(invoice_final)
-                            except Exception:
-                                # Fallback to original file
-                                merger.append(invoice_final)
+                        # Add invoice first
+                        merger.append(invoice_final)
                         
-                        # Add all other files (timesheets)
+                        # Add all timesheets chronologically
+                        for i, p in enumerate(prepared_list):
+                            merger.append(p)
+                            # Update progress during merge
+                            merge_progress = int((i + 1) / len(prepared_list) * 50)  # 50% of this task
+                            self._update_progress_without_increment(merge_progress)
+                        
+                        # Generate output filename with invoice name + underscore
+                        original_invoice_name = os.path.splitext(os.path.basename(invoice_final))[0]
+                        out_name = f"{original_invoice_name}_.pdf"
+                        out_path = os.path.join(week_path, out_name)
+                        merger.write(out_path)
+                        merger.close()
+                        
+                        self.logger.log(f"New merged PDF created: {out_path}", "ok")
+                        merged_count += 1
+                        self._add_activity_line(f"✓ Created merged file for {client}: {os.path.basename(out_path)}")
+                        
+                    except Exception as e:
+                        self.logger.log(f"Merge failed for {client}: {e}", "error")
+                        self._add_activity_line(f"❌ Merge failed for {client}")
+                        errors += 1
+                    finally:
+                        self._increment_task_and_update()
+                elif prepared_list and not invoice_final:
+                    # Only timesheets, no invoice - create a new file
+                    try:
+                        self._add_activity_line(f"Creating timesheet compilation for {client}...")
+                        merger = PdfMerger()
+                        
+                        # Add all timesheets
                         for i, p in enumerate(prepared_list):
                             merger.append(p)
                             # Update progress during merge
@@ -626,35 +646,23 @@ class App(tb.Window):
                             self._update_progress_without_increment(merge_progress)
                         
                         # Generate output filename
-                        if invoice_final:
-                            # Get the original invoice name and add underscore
-                            original_invoice_name = os.path.splitext(os.path.basename(invoice_final))[0]
-                            out_name = f"{original_invoice_name}_.pdf"
-                        else:
-                            out_name = f"{client}_Week_{week_str}.pdf"
+                        out_name = f"{client}_Week_{week_str}.pdf"
                         out_path = os.path.join(week_path, out_name)
                         merger.write(out_path)
                         merger.close()
                         
-                        # Clean up temporary file
-                        try:
-                            if os.path.exists(temp_invoice):
-                                os.remove(temp_invoice)
-                        except Exception:
-                            pass
-                        
-                        self.logger.log(f"Merged PDF created: {out_path}", "ok")
+                        self.logger.log(f"Timesheet compilation created: {out_path}", "ok")
                         merged_count += 1
-                        self._add_activity_line(f"✓ Merged for {client}: {os.path.basename(out_path)}")
+                        self._add_activity_line(f"✓ Timesheet compilation for {client}: {os.path.basename(out_path)}")
                     except Exception as e:
-                        self.logger.log(f"Merge failed for {client}: {e}", "error")
-                        self._add_activity_line(f"❌ Merge failed for {client}")
+                        self.logger.log(f"Timesheet compilation failed for {client}: {e}", "error")
+                        self._add_activity_line(f"❌ Timesheet compilation failed for {client}")
                         errors += 1
                     finally:
                         self._increment_task_and_update()
                 else:
-                    self.logger.log(f"No files to merge for {client}.", "warn")
-                    self._add_activity_line(f"⚠️  No files to merge for {client}")
+                    self.logger.log(f"No files to process for {client}.", "warn")
+                    self._add_activity_line(f"⚠️  No files to process for {client}")
                     warnings += 1
                     self._increment_task_and_update()
 
